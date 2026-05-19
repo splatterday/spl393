@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Text } from "@react-three/drei";
 import * as THREE from "three";
 
 type ThemeTokens = {
@@ -48,6 +47,8 @@ const RIPPLE_DURATION = 1.4;
 const RIPPLE_SPEED = 1.35;
 const RIPPLE_WIDTH = 0.16;
 const RIPPLE_STRENGTH = 0.018;
+const REVEAL_WIPE_DISTANCE = 8.4;
+const REVEAL_WIPE_SPEED = 0.22;
 
 function readThemeToken(name: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
@@ -250,6 +251,7 @@ function SandField({
   const [sampledArtwork, setSampledArtwork] = useState<SampledArtwork | null>(null);
   const geometryRef = useRef<THREE.BufferGeometry>(null);
   const scatterProgressRef = useRef(0);
+  const revealAppliedRef = useRef(false);
   const pointerRef = useRef({
     active: false,
     lastRippleTime: -Infinity,
@@ -302,6 +304,8 @@ function SandField({
     positionsRef.current = particleData.positions.slice();
     targetPositionsRef.current = particleData.basePositions.slice();
     velocitiesRef.current = particleData.velocities.slice();
+    revealAppliedRef.current = false;
+    scatterProgressRef.current = 0;
 
     const positionAttribute = geometryRef.current?.getAttribute("position") as
       | THREE.BufferAttribute
@@ -391,15 +395,28 @@ function SandField({
 
     pointerState.x = pointerX;
     pointerState.y = pointerY;
-    const scatterTarget = revealed ? 1 : 0;
+    if (revealed && !revealAppliedRef.current) {
+      for (let i = 0; i < count; i += 1) {
+        const idx = i * 3;
+        const rowBias = 0.65 + randomUnit(i + 220000) * 0.7;
+        const verticalLift = (randomUnit(i + 230000) - 0.5) * 1.35;
+        mutableTargets[idx] += particleData.scatterOffsets[idx] - REVEAL_WIPE_DISTANCE * rowBias;
+        mutableTargets[idx + 1] += particleData.scatterOffsets[idx + 1] * 0.42 + verticalLift;
+        mutableTargets[idx + 2] += particleData.scatterOffsets[idx + 2] + 0.38;
+        mutableVelocities[idx] -= REVEAL_WIPE_SPEED * rowBias;
+        mutableVelocities[idx + 1] += verticalLift * 0.025;
+        mutableVelocities[idx + 2] += 0.025 + randomUnit(i + 240000) * 0.035;
+      }
+      revealAppliedRef.current = true;
+    }
     scatterProgressRef.current = THREE.MathUtils.damp(
       scatterProgressRef.current,
-      scatterTarget,
-      revealed ? 2.8 : 1.2,
+      revealed ? 1 : 0,
+      revealed ? 4.2 : 1.2,
       dt
     );
     const scatterProgress = scatterProgressRef.current;
-    material.uniforms.uWind.value = scatterProgress * 0.28;
+    material.uniforms.uWind.value = scatterProgress * 0.16;
 
     for (let i = 0; i < count; i += 1) {
       const idx = i * 3;
@@ -411,13 +428,13 @@ function SandField({
       let vz = mutableVelocities[idx + 2];
       const phase = particleData.phases[i];
       const particleSpeed = particleData.speedFactors[i];
-      const targetX = mutableTargets[idx] + particleData.scatterOffsets[idx] * scatterProgress;
-      const targetY = mutableTargets[idx + 1] + particleData.scatterOffsets[idx + 1] * scatterProgress;
-      const targetZ = mutableTargets[idx + 2] + particleData.scatterOffsets[idx + 2] * scatterProgress;
+      const targetX = mutableTargets[idx];
+      const targetY = mutableTargets[idx + 1];
+      const targetZ = mutableTargets[idx + 2];
 
-      vx += (targetX - px) * (0.32 + scatterProgress * 0.35) * dt;
-      vy += (targetY - py) * (0.32 + scatterProgress * 0.35) * dt;
-      vz += (targetZ - pz) * (0.28 + scatterProgress * 0.24) * dt;
+      vx += (targetX - px) * (0.36 + scatterProgress * 0.55) * dt;
+      vy += (targetY - py) * (0.36 + scatterProgress * 0.42) * dt;
+      vz += (targetZ - pz) * (0.3 + scatterProgress * 0.3) * dt;
       vx += Math.cos(phase * 1.9 + time * 0.9) * 0.004 * particleSpeed * scatterProgress;
       vy += Math.sin(phase * 2.2 + time * 0.95) * 0.004 * particleSpeed * scatterProgress;
       vz += Math.sin(phase * 1.4 + time * 0.55) * 0.0018 * particleSpeed * scatterProgress;
@@ -527,30 +544,40 @@ function SandField({
   );
 }
 
-function SigilArtifact({ theme }: { theme: ThemeTokens }) {
+function SigilArtifact({ revealed, theme }: { revealed: boolean; theme: ThemeTokens }) {
   const ref = useRef<THREE.Mesh>(null);
-  useFrame(({ clock }) => {
+  const groupRef = useRef<THREE.Group>(null);
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+  const opacityRef = useRef(0);
+  useFrame(({ clock }, delta) => {
+    opacityRef.current = THREE.MathUtils.damp(opacityRef.current, revealed ? 1 : 0, 8, delta);
+    if (groupRef.current) {
+      groupRef.current.visible = opacityRef.current > 0.01;
+    }
+    if (materialRef.current) {
+      materialRef.current.opacity = opacityRef.current;
+      materialRef.current.emissiveIntensity = 0.25 * opacityRef.current;
+    }
     if (!ref.current) return;
     ref.current.rotation.y = clock.elapsedTime * 0.08;
     ref.current.rotation.x = Math.sin(clock.elapsedTime * 0.1) * 0.05;
   });
 
   return (
-    <group position={[0, 0.05, -0.45]} scale={1.18}>
+    <group ref={groupRef} position={[0, 0.05, -0.45]} scale={1.18} visible={false}>
       <mesh ref={ref}>
         <torusKnotGeometry args={[0.65, 0.18, 160, 24]} />
-        <meshStandardMaterial color={theme.sigilMetal} metalness={0.92} roughness={0.16} emissive={theme.sigilEmissive} emissiveIntensity={0.25} />
+        <meshStandardMaterial
+          ref={materialRef}
+          color={theme.sigilMetal}
+          metalness={0.92}
+          opacity={0}
+          roughness={0.16}
+          emissive={theme.sigilEmissive}
+          emissiveIntensity={0}
+          transparent
+        />
       </mesh>
-      <Text
-        position={[0, 0, 0.62]}
-        fontSize={0.18}
-        letterSpacing={0.32}
-        anchorX="center"
-        anchorY="middle"
-      >
-        SPL393
-        <meshStandardMaterial color={theme.backgroundDark} metalness={0.2} roughness={0.62} />
-      </Text>
     </group>
   );
 }
@@ -572,7 +599,7 @@ export default function ThresholdScene() {
         <ambientLight intensity={0.45} />
         <directionalLight position={[3, 2, 4]} intensity={1.1} />
         <pointLight position={[-3, -1.5, -2]} intensity={0.8} color={theme.sandHighlight} />
-        {revealed ? <SigilArtifact theme={theme} /> : null}
+        <SigilArtifact revealed={revealed} theme={theme} />
         <SandField revealed={revealed} theme={theme} />
       </Canvas>
       <div className="threshold-scene-banner pointer-events-none absolute inset-x-0 top-12 mx-auto flex max-w-6xl justify-between px-6 sm:px-8">
