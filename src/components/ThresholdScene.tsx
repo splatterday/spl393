@@ -228,28 +228,33 @@ const sandFragmentShader = `
   precision mediump float;
   precision mediump int;
 
+  uniform float uOpacity;
+
   varying vec3 vColor;
   varying float vAlpha;
 
   void main() {
     float dist = distance(gl_PointCoord, vec2(0.5));
     float shape = smoothstep(0.55, 0.0, dist);
-    gl_FragColor = vec4(vColor, shape * vAlpha);
+    gl_FragColor = vec4(vColor, shape * vAlpha * uOpacity);
   }
 `;
 
 function SandField({
   count = PARTICLE_COUNT,
+  onReady,
   revealed,
   theme,
 }: {
   count?: number;
+  onReady: (ready: boolean) => void;
   revealed: boolean;
   theme: ThemeTokens;
 }) {
   const pointsRef = useRef<THREE.Points>(null);
   const [sampledArtwork, setSampledArtwork] = useState<SampledArtwork | null>(null);
   const geometryRef = useRef<THREE.BufferGeometry>(null);
+  const fieldOpacityRef = useRef(0);
   const scatterProgressRef = useRef(0);
   const revealAppliedRef = useRef(false);
   const pointerRef = useRef({
@@ -280,25 +285,31 @@ function SandField({
 
   useEffect(() => {
     let isMounted = true;
+    onReady(false);
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => {
       if (!isMounted) return;
       try {
         setSampledArtwork(sampleArtworkImage(image, count, theme));
+        onReady(true);
       } catch {
         setSampledArtwork(null);
+        onReady(false);
       }
     };
     image.onerror = () => {
-      if (isMounted) setSampledArtwork(null);
+      if (isMounted) {
+        setSampledArtwork(null);
+        onReady(false);
+      }
     };
     image.src = ARTWORK_IMAGE_URL;
 
     return () => {
       isMounted = false;
     };
-  }, [count, theme]);
+  }, [count, onReady, theme]);
 
   useEffect(() => {
     positionsRef.current = particleData.positions.slice();
@@ -341,6 +352,7 @@ function SandField({
       name: "SandMaterial",
       glslVersion: THREE.GLSL1,
       uniforms: {
+        uOpacity: { value: 0 },
         uWind: { value: 0 },
       },
       vertexShader: sandVertexShader,
@@ -367,6 +379,13 @@ function SandField({
     }
     const dt = Math.min(0.05, delta);
     const time = clock.elapsedTime;
+    fieldOpacityRef.current = THREE.MathUtils.damp(
+      fieldOpacityRef.current,
+      sampledArtwork ? 1 : 0,
+      4.5,
+      dt
+    );
+    material.uniforms.uOpacity.value = fieldOpacityRef.current;
     const view = viewport.getCurrentViewport(camera, [0, 0, 0]);
     const pointerState = pointerRef.current;
     const pointerX = pointer.x * view.width * 0.5;
@@ -584,6 +603,7 @@ function SigilArtifact({ revealed, theme }: { revealed: boolean; theme: ThemeTok
 
 export default function ThresholdScene() {
   const theme = useThemeTokens();
+  const [artworkReady, setArtworkReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
 
   return (
@@ -600,8 +620,15 @@ export default function ThresholdScene() {
         <directionalLight position={[3, 2, 4]} intensity={1.1} />
         <pointLight position={[-3, -1.5, -2]} intensity={0.8} color={theme.sandHighlight} />
         <SigilArtifact revealed={revealed} theme={theme} />
-        <SandField revealed={revealed} theme={theme} />
+        <SandField onReady={setArtworkReady} revealed={revealed} theme={theme} />
       </Canvas>
+      <div
+        className={`threshold-loader pointer-events-none absolute inset-0 z-20 grid place-items-center transition-opacity duration-700 ${
+          artworkReady ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <div className="threshold-loader-mark" aria-hidden="true" />
+      </div>
       <div className="threshold-scene-banner pointer-events-none absolute inset-x-0 top-12 mx-auto flex max-w-6xl justify-between px-6 sm:px-8">
         <span className="text-xs uppercase tracking-[0.4em]">SPL393</span>
       </div>

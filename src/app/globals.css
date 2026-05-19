@@ -36,3 +36,23 @@ body {
 .threshold-scene-banner {
   color: var(--color-foreground-muted);
 }
+
+.threshold-loader {
+  background: radial-gradient(circle, rgba(4, 4, 4, 0.34), rgba(4, 4, 4, 0) 32%);
+}
+
+.threshold-loader-mark {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 182, 108, 0.18);
+  border-top-color: rgba(255, 182, 108, 0.74);
+  border-radius: 999px;
+  animation: threshold-loader-spin 1.35s linear infinite;
+  box-shadow: 0 0 22px rgba(255, 127, 93, 0.14);
+}
+
+@keyframes threshold-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
