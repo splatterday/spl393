@@ -5,12 +5,43 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Text } from "@react-three/drei";
 import * as THREE from "three";
 
+type ThemeTokens = {
+  backgroundDark: string;
+  sandBase: string;
+  sandHighlight: string;
+  sandAccent: string;
+  sigilMetal: string;
+  sigilEmissive: string;
+  sigilText: string;
+  textMuted: string;
+};
+
+function readThemeToken(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function useThemeTokens(): ThemeTokens {
+  return useMemo(
+    () => ({
+      backgroundDark: readThemeToken("--background-dark", "#040404"),
+      sandBase: readThemeToken("--color-sand-base", "#0f0f10"),
+      sandHighlight: readThemeToken("--color-sand-highlight", "#ffb66c"),
+      sandAccent: readThemeToken("--color-sand-accent", "#ff7f5d"),
+      sigilMetal: readThemeToken("--color-sigil-metal", "#d5b96e"),
+      sigilEmissive: readThemeToken("--color-sigil-emissive", "#3d2200"),
+      sigilText: readThemeToken("--color-sigil-text", "#f4e9a3"),
+      textMuted: readThemeToken("--color-foreground-muted", "rgba(255,255,255,0.72)"),
+    }),
+    []
+  );
+}
+
 const sandVertexShader = `
   precision highp float;
   precision highp int;
 
-  attribute vec3 position;
-  attribute vec3 color;
   uniform float uTime;
   uniform float uWind;
   uniform vec2 uMouse;
@@ -48,7 +79,7 @@ const sandFragmentShader = `
   }
 `;
 
-function SandField({ count = 11000 }: { count?: number }) {
+function SandField({ count = 11000, theme }: { count?: number; theme: ThemeTokens }) {
   const pointsRef = useRef<THREE.Points>(null);
   const [wind, setWind] = useState(0);
   const mouse = useRef(new THREE.Vector2(0, 0));
@@ -67,9 +98,9 @@ function SandField({ count = 11000 }: { count?: number }) {
 
   const colors = useMemo(() => {
     const array = new Float32Array(count * 3);
-    const baseDark = new THREE.Color("#0f0f10");
-    const highlight = new THREE.Color("#ffb66c");
-    const accent = new THREE.Color("#ff7f5d");
+    const baseDark = new THREE.Color(theme.sandBase);
+    const highlight = new THREE.Color(theme.sandHighlight);
+    const accent = new THREE.Color(theme.sandAccent);
 
     for (let i = 0; i < count; i += 1) {
       const mix = Math.random();
@@ -80,7 +111,7 @@ function SandField({ count = 11000 }: { count?: number }) {
     }
 
     return array;
-  }, [count]);
+  }, [count, theme]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -140,7 +171,7 @@ function SandField({ count = 11000 }: { count?: number }) {
   );
 }
 
-function SigilArtifact() {
+function SigilArtifact({ theme }: { theme: ThemeTokens }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
@@ -152,23 +183,15 @@ function SigilArtifact() {
     <group position={[0, 0.2, 0]}>
       <mesh ref={ref}>
         <torusKnotGeometry args={[0.65, 0.18, 160, 24]} />
-        <meshStandardMaterial color="#d5b96e" metalness={0.92} roughness={0.16} emissive="#3d2200" emissiveIntensity={0.25} />
+        <meshStandardMaterial color={theme.sigilMetal} metalness={0.92} roughness={0.16} emissive={theme.sigilEmissive} emissiveIntensity={0.25} />
       </mesh>
-      <Text
-        position={[0, -1.05, 0]}
-        fontSize={0.2}
-        color="#f4e9a3"
-        anchorX="center"
-        anchorY="middle"
-        letterSpacing={0.08}
-      >
-        SPL393
-      </Text>
     </group>
   );
 }
 
 export default function ThresholdScene() {
+  const theme = useThemeTokens();
+
   return (
     <div className="relative h-screen w-full">
       <Canvas
@@ -177,16 +200,15 @@ export default function ThresholdScene() {
         gl={{ antialias: true, alpha: true }}
         className="h-full w-full"
       >
-        <color attach="background" args={["#040404"]} />
+        <color attach="background" args={[theme.backgroundDark]} />
         <ambientLight intensity={0.45} />
         <directionalLight position={[3, 2, 4]} intensity={1.1} />
-        <pointLight position={[-3, -1.5, -2]} intensity={0.8} color="#ffb66c" />
-        <SandField />
-        <SigilArtifact />
+        <pointLight position={[-3, -1.5, -2]} intensity={0.8} color={theme.sandHighlight} />
+        <SandField theme={theme} />
+        <SigilArtifact theme={theme} />
       </Canvas>
-      <div className="pointer-events-none absolute inset-x-0 top-12 mx-auto flex max-w-6xl justify-between px-6 text-white/80 sm:px-8">
-        <span className="text-xs uppercase tracking-[0.4em] text-zinc-400">SPL393</span>
-        <span className="text-xs uppercase tracking-[0.4em] text-zinc-400">fine art threshold</span>
+      <div className="threshold-scene-banner pointer-events-none absolute inset-x-0 top-12 mx-auto flex max-w-6xl justify-between px-6 sm:px-8">
+        <span className="text-xs uppercase tracking-[0.4em]">SPL393</span>
       </div>
     </div>
   );
